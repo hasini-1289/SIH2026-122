@@ -42,6 +42,13 @@ from Engine.module_6_schedule_update.status_mapper import StatusMapper
 from Engine.module_6b_ordering.graph import build_dependency_graph, topological_sort
 
 from . import batch_parser
+from .db import (
+    init_db,
+    query_activity_trace,
+    query_avg_progress_by_discipline,
+    query_by_discipline_status,
+    query_recent_updates,
+)
 from .store import store
 
 logging.basicConfig(level=logging.INFO)
@@ -56,6 +63,7 @@ _state: Dict[str, object] = {}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Building schedule index / pipeline ...")
+    init_db()
     config = ScheduleUpdateConfig(schedule_master_path=SCHEDULE_MASTER_PATH)
     _state["pipeline"] = Pipeline(schedule_master_path=SCHEDULE_MASTER_PATH)
     _state["exec_repo"] = ExecutionStateRepository(config)
@@ -360,8 +368,19 @@ def _process_single_report(project_id: str, text: str, source_type: str = "front
         new_progress = new_state.actual_progress if new_state else 0
 
         message = _build_update_message(prev_status, new_status, prev_progress, new_progress)
+        activity_row = _get_activity_row(activity_id) if activity_id else None
+        discipline = activity_row.get("discipline") if activity_row is not None else None
         update_record = store.add_update(
-            activity_id, report_id, prev_status, new_status, prev_progress, new_progress, message
+            activity_id,
+            report_id,
+            prev_status,
+            new_status,
+            prev_progress,
+            new_progress,
+            message,
+            source=source_type,
+            discipline=discipline,
+            decision_reasons=decision_reasons,
         )
         store.create_report(
             report_id,
@@ -715,6 +734,34 @@ def reject_report(report_id: str, body: RejectBody):
 # ---------------------------------------------------------------------------
 # Dashboard
 # ---------------------------------------------------------------------------
+
+
+@app.get("/api/projects/{project_id}/analytics/activity-trace/{activity_id}")
+def activity_trace(project_id: str, activity_id: str):
+    if project_id != PROJECT_ID:
+        fail(404, f"Project {project_id} not found")
+    return envelope(query_activity_trace(activity_id))
+
+
+@app.get("/api/projects/{project_id}/analytics/by-discipline-status")
+def by_discipline_status(project_id: str, discipline: str, status: str):
+    if project_id != PROJECT_ID:
+        fail(404, f"Project {project_id} not found")
+    return envelope(query_by_discipline_status(discipline, status))
+
+
+@app.get("/api/projects/{project_id}/analytics/progress-by-discipline")
+def progress_by_discipline(project_id: str):
+    if project_id != PROJECT_ID:
+        fail(404, f"Project {project_id} not found")
+    return envelope(query_avg_progress_by_discipline())
+
+
+@app.get("/api/projects/{project_id}/analytics/recent-updates")
+def recent_updates(project_id: str, limit: int = 20):
+    if project_id != PROJECT_ID:
+        fail(404, f"Project {project_id} not found")
+    return envelope(query_recent_updates(limit))
 
 
 @app.get("/api/projects/{project_id}/dashboard")

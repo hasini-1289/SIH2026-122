@@ -10,7 +10,7 @@ import { AttentionCard } from '../../components/dashboard/AttentionCard';
 import { SkeletonDashboard } from '../../components/ui/LoadingSkeleton';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { reportService } from '../../services/reportService';
-import { Activity, CheckCircle, RefreshCw, AlertTriangle } from 'lucide-react';
+import { Activity, CheckCircle, RefreshCw, AlertTriangle, BarChart3, ArrowRight } from 'lucide-react';
 
 export default function Dashboard() {
   const projectId = useProjectId();
@@ -43,14 +43,24 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6 md:space-y-8 animate-fade-in">
-      <header className="mb-6">
-        <span className="page-number">01 / PROJECT OVERVIEW</span>
-        <h1 className="text-3xl md:text-4xl font-bold tracking-tight" style={{ color: 'inherit' }}>
-          {data.project.name}
-        </h1>
-        <p className="mt-2 text-sm max-w-3xl leading-relaxed opacity-75">
-          {data.project.description}
-        </p>
+      <header className="mb-6 flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+        <div>
+          <span className="page-number">01 / PROJECT OVERVIEW</span>
+          <h1 className="text-3xl md:text-4xl font-bold tracking-tight" style={{ color: 'inherit' }}>
+            {data.project.name}
+          </h1>
+          <p className="mt-2 text-sm max-w-3xl leading-relaxed opacity-75">
+            {data.project.description}
+          </p>
+        </div>
+        <button
+          onClick={() => navigate('/analytics')}
+          className="glass-button-teal px-4 py-2.5 text-sm flex items-center justify-center gap-2 self-start md:self-auto"
+        >
+          <BarChart3 size={15} />
+          QUERY ANALYTICS
+          <ArrowRight size={14} />
+        </button>
       </header>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-5">

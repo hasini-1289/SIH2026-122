@@ -26,6 +26,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from .db import log_update
+
 STORE_PATH = Path("Data/api_state.json")
 
 _lock = threading.Lock()
@@ -171,6 +173,8 @@ class ApiStateStore:
         new_progress: Optional[float],
         message: str,
         source: Optional[str] = None,
+        discipline: Optional[str] = None,
+        decision_reasons: Optional[List[str]] = None,
     ) -> dict:
         with _lock:
             self._update_counter += 1
@@ -184,10 +188,25 @@ class ApiStateStore:
                 "newProgress": new_progress,
                 "message": message,
                 "source": source,
+                "discipline": discipline,
+                "decisionReasons": decision_reasons or [],
                 "createdAt": _now_iso(),
             }
             self.updates.append(record)
             self._save()
+            log_update(
+                record["_id"],
+                report_id,
+                activity_id,
+                discipline,
+                previous_status,
+                new_status,
+                previous_progress,
+                new_progress,
+                decision_reasons,
+                message,
+                record["createdAt"],
+            )
             return record
 
     def list_updates_for_activity(self, activity_id: str) -> List[dict]:
