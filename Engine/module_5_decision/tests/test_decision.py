@@ -16,6 +16,7 @@ def make_candidate(
     discipline_score: float = None,
     date_score: float = None,
     contradiction_penalty: float = 0.0,
+    explanation: list[str] | str | None = None,
 ) -> RankedCandidate:
     """Create a RankedCandidate with configurable per-signal scores.
 
@@ -47,7 +48,7 @@ def make_candidate(
             contradiction_penalty=contradiction_penalty,
             final_score=final_score,
         ),
-        explanation=[],
+        explanation=explanation if explanation is not None else [],
     )
 
 
@@ -391,3 +392,44 @@ def test_single_candidate_not_affected_by_guardrail():
     result = make_decision(ranking)
     assert result.decision == DecisionType.AUTO_MATCH
     assert result.selected_activity_id == "A1"
+
+
+def test_auto_match_includes_explanation_in_decision_reasons():
+    ranking = RankingResult(
+        report_id="R20",
+        ranked_candidates=[
+            make_candidate(
+                "A1",
+                0.95,
+                explanation=["Semantic match is strong.", "Equipment tags align exactly."],
+            ),
+            make_candidate("A2", 0.70),
+        ],
+    )
+
+    result = make_decision(ranking)
+
+    assert result.decision == DecisionType.AUTO_MATCH
+    assert any("Semantic match is strong." in reason for reason in result.decision_reasons)
+    assert any("Equipment tags align exactly." in reason for reason in result.decision_reasons)
+
+
+def test_human_review_includes_explanation_in_decision_reasons():
+    ranking = RankingResult(
+        report_id="R21",
+        ranked_candidates=[
+            make_candidate(
+                "A1",
+                0.72,
+                explanation=["Top candidate is plausible but limited by missing location evidence."],
+            ),
+            make_candidate("A2", 0.40),
+        ],
+    )
+
+    result = make_decision(ranking)
+
+    assert result.decision == DecisionType.HUMAN_REVIEW
+    assert any(
+        "missing location evidence" in reason.lower() for reason in result.decision_reasons
+    )

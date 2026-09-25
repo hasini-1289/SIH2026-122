@@ -167,6 +167,21 @@ export function ReviewPanel({ report, onClose, onResolved }: ReviewPanelProps) {
               >
                 {report.violation?.message}
               </div>
+
+              {report.decisionReasons && report.decisionReasons.length > 0 && (
+                <>
+                  <span className="section-label">MATCH REASONING</span>
+                  <div
+                    className="p-4 rounded-xl text-sm mb-4"
+                    style={{ background: 'rgba(255,255,255,0.50)', border: '1px solid rgba(190,180,160,0.25)' }}
+                  >
+                    <ul className="list-disc pl-4 space-y-1">
+                      {report.decisionReasons.map((reason, i) => <li key={i}>{reason}</li>)}
+                    </ul>
+                  </div>
+                </>
+              )}
+
               <p className="text-xs text-muted mb-5">
                 Report matched activity <strong>{report.matchedActivityId}</strong> with high
                 confidence, but was blocked because predecessor(s) are not yet complete. Choose

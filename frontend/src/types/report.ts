@@ -49,6 +49,7 @@ export interface FieldReport {
   matchedActivityId?: string;
   candidateActivities: Candidate[];
   violation?: ConsistencyViolation | null;
+  decisionReasons?: string[];
   userDecision?: string;
   reviewNote?: string;
   createdAt: string;
@@ -62,6 +63,7 @@ export interface SubmitReportResponse {
   update?: import('./activity').ActivityUpdate;
   candidates?: Candidate[];
   violation?: ConsistencyViolation;
+  decisionReasons?: string[];
 }
 
 export interface BatchItem {
@@ -77,6 +79,7 @@ export interface BatchResultItem {
   update?: import('./activity').ActivityUpdate;
   candidates?: Candidate[];
   violation?: ConsistencyViolation;
+  decisionReasons?: string[];
   error?: string;
 }
 

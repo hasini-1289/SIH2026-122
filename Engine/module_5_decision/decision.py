@@ -43,6 +43,13 @@ def make_decision(ranking_result: RankingResult) -> DecisionResult:
         # Best candidate
         best_candidate = candidates[0]
         best_score = best_candidate.scores.final_score
+        best_candidate_explanation = getattr(best_candidate, "explanation", None)
+        if isinstance(best_candidate_explanation, list):
+            explanation_text = " ".join(str(item) for item in best_candidate_explanation if item is not None)
+        elif best_candidate_explanation is None:
+            explanation_text = ""
+        else:
+            explanation_text = str(best_candidate_explanation)
 
         # Second candidate, if available
         if len(candidates) > 1:
@@ -78,6 +85,14 @@ def make_decision(ranking_result: RankingResult) -> DecisionResult:
             and not has_contradiction
             and has_grounding
         ):
+            reasons = [
+                "Best candidate score exceeds auto-match threshold.",
+                "Best candidate is sufficiently separated from alternatives."
+                if score_gap is not None
+                else "Only one candidate was available.",
+            ]
+            if explanation_text:
+                reasons.append(explanation_text)
             return DecisionResult(
                 report_id=report_id,
                 decision=DecisionType.AUTO_MATCH,
@@ -86,12 +101,7 @@ def make_decision(ranking_result: RankingResult) -> DecisionResult:
                 best_score=best_score,
                 second_best_score=second_best_score,
                 score_gap=score_gap,
-                decision_reasons=[
-                    "Best candidate score exceeds auto-match threshold.",
-                    "Best candidate is sufficiently separated from alternatives."
-                    if score_gap is not None
-                    else "Only one candidate was available.",
-                ],
+                decision_reasons=reasons,
             )
 
         # Case 3: Candidate is plausible but not safe enough to auto-match
@@ -114,6 +124,9 @@ def make_decision(ranking_result: RankingResult) -> DecisionResult:
                 reasons.append(
                     "Best candidate score is below the auto-match threshold."
                 )
+
+            if explanation_text:
+                reasons.append(explanation_text)
 
             return DecisionResult(
                 report_id=report_id,

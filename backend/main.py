@@ -323,6 +323,7 @@ def _process_single_report(project_id: str, text: str, source_type: str = "front
     if decision.decision == DecisionType.AUTO_MATCH:
         activity_id = decision.selected_activity_id
         update = result.update
+        decision_reasons = decision.decision_reasons or []
 
         if update and update.update_status == UpdateStatus.PENDING_REVIEW and update.violation:
             v = update.violation
@@ -341,12 +342,14 @@ def _process_single_report(project_id: str, text: str, source_type: str = "front
                 status="SCHEDULE_VIOLATION",
                 matched_activity_id=activity_id,
                 violation=violation,
+                decision_reasons=decision_reasons,
             )
             return {
                 "status": "SCHEDULE_VIOLATION",
                 "reportId": report_id,
                 "activity": _get_activity_view(activity_id),
                 "violation": violation,
+                "decisionReasons": decision_reasons,
             }
 
         prev_state = update.previous_execution_state if update else None
@@ -360,7 +363,14 @@ def _process_single_report(project_id: str, text: str, source_type: str = "front
         update_record = store.add_update(
             activity_id, report_id, prev_status, new_status, prev_progress, new_progress, message
         )
-        store.create_report(report_id, project_id, text, status="SUCCESS", matched_activity_id=activity_id)
+        store.create_report(
+            report_id,
+            project_id,
+            text,
+            status="SUCCESS",
+            matched_activity_id=activity_id,
+            decision_reasons=decision_reasons,
+        )
         if new_status == "COMPLETED":
             store.auto_resolve_stale_attention(activity_id, resolved_by_report_id=report_id)
         return {
@@ -368,9 +378,11 @@ def _process_single_report(project_id: str, text: str, source_type: str = "front
             "reportId": report_id,
             "activity": _get_activity_view(activity_id),
             "update": update_record,
+            "decisionReasons": decision_reasons,
         }
 
     if decision.decision == DecisionType.HUMAN_REVIEW:
+        decision_reasons = decision.decision_reasons or []
         candidates = [
     {
         "activityId": c.activity_id,
@@ -383,8 +395,20 @@ def _process_single_report(project_id: str, text: str, source_type: str = "front
     }
     for c in (result.ranking.ranked_candidates[:3] if result.ranking else [])
 ]
-        store.create_report(report_id, project_id, text, status="NEEDS_REVIEW", candidate_activities=candidates)
-        return {"status": "NEEDS_REVIEW", "reportId": report_id, "candidates": candidates}
+        store.create_report(
+            report_id,
+            project_id,
+            text,
+            status="NEEDS_REVIEW",
+            candidate_activities=candidates,
+            decision_reasons=decision_reasons,
+        )
+        return {
+            "status": "NEEDS_REVIEW",
+            "reportId": report_id,
+            "candidates": candidates,
+            "decisionReasons": decision_reasons,
+        }
 
     store.create_report(report_id, project_id, text, status="UNMATCHED")
     return {"status": "UNMATCHED", "reportId": report_id}

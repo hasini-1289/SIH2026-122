@@ -86,6 +86,7 @@ class ApiStateStore:
         matched_activity_id: Optional[str] = None,
         candidate_activities: Optional[List[dict]] = None,
         violation: Optional[dict] = None,
+        decision_reasons: Optional[List[str]] = None,
     ) -> dict:
         now = _now_iso()
         record = {
@@ -98,6 +99,7 @@ class ApiStateStore:
             "matchedActivityId": matched_activity_id,
             "candidateActivities": candidate_activities or [],
             "violation": violation,
+            "decisionReasons": decision_reasons or [],
             "userDecision": None,
             "reviewNote": None,
             "createdAt": now,

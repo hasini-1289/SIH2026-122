@@ -54,6 +54,17 @@ export function ReportResult({ result, onConfirm, onReject, onReset }: ReportRes
             />
           </div>
         </div>
+        {result.decisionReasons && result.decisionReasons.length > 0 && (
+          <div
+            className="w-full max-w-xs mb-6 p-4 rounded-xl text-left text-xs"
+            style={{ background: 'rgba(255,255,255,0.50)', border: '1px solid rgba(190,180,160,0.25)' }}
+          >
+            <div className="font-semibold mb-1">Match Reasoning</div>
+            <ul className="list-disc pl-4 space-y-1">
+              {result.decisionReasons.map((reason, i) => <li key={i}>{reason}</li>)}
+            </ul>
+          </div>
+        )}
         <Link
           to={`/activities/${result.activity?._id}`}
           className="glass-button-teal px-6 py-2.5 text-sm flex items-center gap-2 mb-3"
@@ -104,6 +115,17 @@ export function ReportResult({ result, onConfirm, onReject, onReset }: ReportRes
             <span>{result.violation?.predecessorStatus}</span>
           </div>
         </div>
+        {result.decisionReasons && result.decisionReasons.length > 0 && (
+          <div
+            className="w-full max-w-xs mb-6 p-4 rounded-xl text-left text-xs"
+            style={{ background: 'rgba(255,255,255,0.50)', border: '1px solid rgba(190,180,160,0.25)' }}
+          >
+            <div className="font-semibold mb-1">Match Reasoning</div>
+            <ul className="list-disc pl-4 space-y-1">
+              {result.decisionReasons.map((reason, i) => <li key={i}>{reason}</li>)}
+            </ul>
+          </div>
+        )}
         <Link to="/attention" className="glass-button-secondary px-6 py-2.5 text-sm flex items-center gap-2 mb-3">
           REVIEW QUEUE
         </Link>
