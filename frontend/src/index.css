@@ -237,6 +237,31 @@ html.dark .glass-button-teal {
   color: #3ABFAA;
 }
 
+.glass-button-analytics {
+  background: rgba(8, 35, 36, 0.76);
+  backdrop-filter: blur(16px) saturate(1.25);
+  -webkit-backdrop-filter: blur(16px) saturate(1.25);
+  border: 1px solid rgba(139, 232, 213, 0.58);
+  color: #B5F5E7;
+  border-radius: 8px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  box-shadow: 0 8px 24px rgba(3, 20, 20, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+  cursor: pointer;
+}
+.glass-button-analytics:hover {
+  background: rgba(8, 46, 45, 0.88);
+  border-color: rgba(169, 255, 232, 0.82);
+  box-shadow: 0 10px 28px rgba(3, 20, 20, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.24);
+  transform: translateY(-1px);
+}
+.glass-button-analytics:focus-visible {
+  outline: 2px solid #B5F5E7;
+  outline-offset: 3px;
+}
+.glass-button-analytics svg { color: #55D8BD; }
+
 .glass-button-secondary {
   background: rgba(255, 255, 255, 0.40);
   border: 1px solid rgba(160, 190, 170, 0.38);
