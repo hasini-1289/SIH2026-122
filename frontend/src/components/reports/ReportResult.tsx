@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { SubmitReportResponse } from '../../types/report';
-import { CheckCircle2, AlertTriangle, HelpCircle, ArrowRight, RotateCcw } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, HelpCircle, ArrowRight, RotateCcw, ShieldAlert } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 interface ReportResultProps {
@@ -54,11 +54,80 @@ export function ReportResult({ result, onConfirm, onReject, onReset }: ReportRes
             />
           </div>
         </div>
+        {result.decisionReasons && result.decisionReasons.length > 0 && (
+          <div
+            className="w-full max-w-xs mb-6 p-4 rounded-xl text-left text-xs"
+            style={{ background: 'rgba(255,255,255,0.50)', border: '1px solid rgba(190,180,160,0.25)' }}
+          >
+            <div className="font-semibold mb-1">Match Reasoning</div>
+            <ul className="list-disc pl-4 space-y-1">
+              {result.decisionReasons.map((reason, i) => <li key={i}>{reason}</li>)}
+            </ul>
+          </div>
+        )}
         <Link
           to={`/activities/${result.activity?._id}`}
           className="glass-button-teal px-6 py-2.5 text-sm flex items-center gap-2 mb-3"
         >
           VIEW ACTIVITY <ArrowRight size={14} />
+        </Link>
+        <button onClick={onReset} className="glass-button-ghost text-xs flex items-center gap-1.5">
+          <RotateCcw size={11} /> Submit another report
+        </button>
+      </div>
+    );
+  }
+
+  if (result.status === 'SCHEDULE_VIOLATION') {
+    return (
+      <div
+        className="glass-panel p-7 flex flex-col items-center text-center animate-fade-in h-full justify-center"
+        style={{ borderColor: 'rgba(160,56,40,0.28)' }}
+      >
+        <div
+          className="w-14 h-14 rounded-full flex items-center justify-center mb-5"
+          style={{
+            background: 'rgba(160,56,40,0.09)',
+            border: '1px solid rgba(160,56,40,0.28)',
+          }}
+        >
+          <ShieldAlert size={28} className="text-accent-red" />
+        </div>
+        <div className="text-[10px] font-bold tracking-[0.20em] uppercase mb-3" style={{ color: '#A03828' }}>
+          Schedule Violation
+        </div>
+        <div className="text-xl font-bold mb-1 text-primary">
+          {result.activity?.name}
+        </div>
+        <p className="text-sm mb-6 font-medium text-secondary max-w-sm">
+          {result.violation?.message}
+        </p>
+        <div
+          className="w-full max-w-xs mb-6 p-4 rounded-xl text-left text-xs"
+          style={{ background: 'rgba(255,255,255,0.50)', border: '1px solid rgba(190,180,160,0.25)' }}
+        >
+          <div className="flex justify-between mb-1">
+            <span className="font-semibold">Predecessor</span>
+            <span className="font-mono">{result.violation?.predecessorId}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="font-semibold">Status</span>
+            <span>{result.violation?.predecessorStatus}</span>
+          </div>
+        </div>
+        {result.decisionReasons && result.decisionReasons.length > 0 && (
+          <div
+            className="w-full max-w-xs mb-6 p-4 rounded-xl text-left text-xs"
+            style={{ background: 'rgba(255,255,255,0.50)', border: '1px solid rgba(190,180,160,0.25)' }}
+          >
+            <div className="font-semibold mb-1">Match Reasoning</div>
+            <ul className="list-disc pl-4 space-y-1">
+              {result.decisionReasons.map((reason, i) => <li key={i}>{reason}</li>)}
+            </ul>
+          </div>
+        )}
+        <Link to="/attention" className="glass-button-secondary px-6 py-2.5 text-sm flex items-center gap-2 mb-3">
+          REVIEW QUEUE
         </Link>
         <button onClick={onReset} className="glass-button-ghost text-xs flex items-center gap-1.5">
           <RotateCcw size={11} /> Submit another report
@@ -120,15 +189,36 @@ export function ReportResult({ result, onConfirm, onReject, onReset }: ReportRes
                   <div className="w-1.5 h-1.5 bg-white rounded-full" />
                 )}
               </div>
-              <span
-                className="text-sm font-medium"
-                style={{
-                  color:
-                    selectedCandidate === candidate.activityId ? '#16796E' : '#3A3630',
-                }}
-              >
-                {candidate.activityName}
-              </span>
+              <div className="min-w-0">
+  <div
+    className="text-[11px] font-mono font-semibold mb-0.5"
+    style={{
+      color:
+        selectedCandidate === candidate.activityId
+          ? '#16796E'
+          : '#6B655D',
+    }}
+  >
+    {candidate.activityId}
+  </div>
+
+  <div
+    className="text-sm font-medium"
+    style={{
+      color:
+        selectedCandidate === candidate.activityId
+          ? '#16796E'
+          : '#3A3630',
+    }}
+  >
+    {candidate.activityName}
+    {candidate.activityArea && (
+  <div className="text-xs text-muted mt-1">
+    Area: {candidate.activityArea}
+  </div>
+)}
+  </div>
+</div>
             </label>
           ))}
         </div>

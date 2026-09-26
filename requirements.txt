@@ -1,6 +1,20 @@
+# Core data and validation
 pydantic>=2.0,<3.0
-pandas>=2.0
-pytest>=7.0
+pandas>=2.0,<3.0
+numpy>=1.24,<3.0
+
+# Matching, retrieval, and evaluation
+rapidfuzz>=3.0,<4.0
+scikit-learn>=1.3,<2.0
+
+# API and file upload support
 fastapi>=0.115.0,<1.0
 uvicorn>=0.30.0,<1.0
 python-multipart>=0.0.9
+pdfplumber>=0.11
+
+# Test runner
+pytest>=7.0
+
+# Optional semantic backend:
+# sentence-transformers>=3.0,<6.0

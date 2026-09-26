@@ -1,3 +1,7 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+node_modules/
+dist/
+.pytest_cache/
+.claude/settings.local.json

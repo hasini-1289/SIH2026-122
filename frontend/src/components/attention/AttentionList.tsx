@@ -1,6 +1,6 @@
 import React from 'react';
 import { FieldReport } from '../../types/report';
-import { AlertTriangle, HelpCircle, ArrowRight, Clock } from 'lucide-react';
+import { AlertTriangle, HelpCircle, ShieldAlert, ArrowRight, Clock } from 'lucide-react';
 import { formatDateTime, truncate } from '../../utils/formatters';
 
 interface AttentionListProps {
@@ -19,12 +19,15 @@ export function AttentionList({ reports, onReview }: AttentionListProps) {
         >
           <div className="flex items-start gap-4">
             <div
-              className="mt-0.5 flex-shrink-0 text-accent-amber"
+              className="mt-0.5 flex-shrink-0"
+              style={{ color: report.status === 'SCHEDULE_VIOLATION' ? '#A03828' : undefined }}
             >
-              {report.status === 'NEEDS_REVIEW' ? (
-                <AlertTriangle size={18} />
+              {report.status === 'SCHEDULE_VIOLATION' ? (
+                <ShieldAlert size={18} />
+              ) : report.status === 'NEEDS_REVIEW' ? (
+                <AlertTriangle size={18} className="text-accent-amber" />
               ) : (
-                <HelpCircle size={18} />
+                <HelpCircle size={18} className="text-accent-amber" />
               )}
             </div>
             <div className="flex-1 min-w-0">
@@ -37,14 +40,32 @@ export function AttentionList({ reports, onReview }: AttentionListProps) {
                 <span
                   className="text-[10px] px-2 py-0.5 rounded-full font-semibold"
                   style={{
-                    background: 'rgba(184,122,32,0.09)',
-                    border: '1px solid rgba(184,122,32,0.22)',
+                    background: report.status === 'SCHEDULE_VIOLATION' ? 'rgba(160,56,40,0.09)' : 'rgba(184,122,32,0.09)',
+                    border: report.status === 'SCHEDULE_VIOLATION' ? '1px solid rgba(160,56,40,0.28)' : '1px solid rgba(184,122,32,0.22)',
+                    color: report.status === 'SCHEDULE_VIOLATION' ? '#A03828' : undefined,
                     }}
                 >
-                  {report.status === 'NEEDS_REVIEW'
+                  {report.status === 'SCHEDULE_VIOLATION'
+                    ? 'Schedule consistency violation'
+                    : report.status === 'NEEDS_REVIEW'
                     ? 'Multiple possible activities'
                     : 'Activity could not be identified'}
                 </span>
+                {/* Optional chain-count badge — shown only when backend returns predecessorChain with >1 items */}
+                {report.status === 'SCHEDULE_VIOLATION' &&
+                  report.violation?.predecessorChain &&
+                  report.violation.predecessorChain.length > 1 && (
+                    <span
+                      className="text-[10px] px-2 py-0.5 rounded-full font-semibold"
+                      style={{
+                        background: 'rgba(160,56,40,0.06)',
+                        border: '1px solid rgba(160,56,40,0.18)',
+                        color: '#A03828',
+                      }}
+                    >
+                      {report.violation.predecessorChain.length} predecessors pending
+                    </span>
+                  )}
               </div>
               <p className="text-sm mb-1.5 font-medium text-secondary">
                 {truncate(report.text, 100)}

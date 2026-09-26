@@ -31,13 +31,24 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from shared.constants import DecisionType, ExecutionStatus
+from shared.constants import DecisionType, ExecutionStatus, UpdateStatus
 from shared.schemas import RawReportInput, ExecutionState
+from Engine.module_1_normalization.normalizer import normalize_report
+from Engine.module_2_extraction.extractor import extract_information
 from integration.pipeline import Pipeline
 from Engine.module_6_schedule_update.repository import ExecutionStateRepository
 from Engine.module_6_schedule_update.config import ScheduleUpdateConfig
+from Engine.module_6_schedule_update.status_mapper import StatusMapper
+from Engine.module_6b_ordering.graph import build_dependency_graph, topological_sort
 
 from . import batch_parser
+from .db import (
+    init_db,
+    query_activity_trace,
+    query_avg_progress_by_discipline,
+    query_by_discipline_status,
+    query_recent_updates,
+)
 from .store import store
 
 logging.basicConfig(level=logging.INFO)
@@ -52,6 +63,7 @@ _state: Dict[str, object] = {}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Building schedule index / pipeline ...")
+    init_db()
     config = ScheduleUpdateConfig(schedule_master_path=SCHEDULE_MASTER_PATH)
     _state["pipeline"] = Pipeline(schedule_master_path=SCHEDULE_MASTER_PATH)
     _state["exec_repo"] = ExecutionStateRepository(config)
@@ -108,7 +120,6 @@ _STATUS_MAP = {
 def _activity_view(row: pd.Series) -> dict:
     activity_id = row["activity_id"]
     exec_state: Optional[ExecutionState] = _exec_repo().get(activity_id)
-
     if exec_state is not None:
         status = _STATUS_MAP.get(exec_state.actual_status.value, "NOT_STARTED")
         progress = exec_state.actual_progress if exec_state.actual_progress is not None else 0
@@ -117,12 +128,20 @@ def _activity_view(row: pd.Series) -> dict:
     else:
         status, progress, last_report_id, timestamp = "NOT_STARTED", 0, None, None
 
+    has_pending_review = (status != "COMPLETED") and any(
+        report.get("matchedActivityId") == activity_id
+        or (report.get("violation") or {}).get("activityId") == activity_id
+        or any(candidate.get("activityId") == activity_id for candidate in report.get("candidateActivities", []))
+        for report in store.list_attention_reports(PROJECT_ID)
+    )
+
     return {
         "_id": activity_id,
         "projectId": PROJECT_ID,
         "name": row["activity_name"],
         "description": row.get("activity_description") or row["activity_name"],
         "status": status,
+        "hasPendingReview": has_pending_review,
         "progress": progress,
         "plannedStart": row["planned_start"],
         "plannedFinish": row["planned_finish"],
@@ -250,6 +269,21 @@ class RejectBody(BaseModel):
     note: Optional[str] = None
 
 
+class ResolveViolationItem(BaseModel):
+    predecessorId: str
+    action: str
+    note: Optional[str] = None
+
+
+class ResolveViolationBody(BaseModel):
+    items: List[ResolveViolationItem]
+
+
+class BulkCompleteChainBody(BaseModel):
+    predecessorIds: List[str]
+    note: Optional[str] = None
+
+
 @app.get("/api/projects/{project_id}/reports")
 def list_reports(project_id: str):
     return envelope(store.list_reports(project_id))
@@ -269,11 +303,12 @@ def get_report(report_id: str):
 
 
 def _process_single_report(project_id: str, text: str, source_type: str = "frontend",
-                            report_date: Optional[str] = None) -> dict:
+                            report_date: Optional[str] = None, report_id: Optional[str] = None,
+                            pipeline_result=None) -> dict:
     if not text or not text.strip():
         return {"status": "ERROR", "error": "Report text must not be empty"}
 
-    report_id = store.new_report_id()
+    report_id = report_id or store.new_report_id()
     raw_report = RawReportInput(
         report_id=report_id,
         report_date=report_date or datetime.now(timezone.utc).strftime("%Y-%m-%d"),
@@ -281,7 +316,7 @@ def _process_single_report(project_id: str, text: str, source_type: str = "front
         raw_text=text,
     )
 
-    result = _pipeline().process_report(raw_report)
+    result = pipeline_result or _pipeline().process_report(raw_report)
 
     if result.failed():
         failed = result.failed_stage()
@@ -296,6 +331,35 @@ def _process_single_report(project_id: str, text: str, source_type: str = "front
     if decision.decision == DecisionType.AUTO_MATCH:
         activity_id = decision.selected_activity_id
         update = result.update
+        decision_reasons = decision.decision_reasons or []
+
+        if update and update.update_status == UpdateStatus.PENDING_REVIEW and update.violation:
+            v = update.violation
+            violation = {
+                "rule": v.rule,
+                "activityId": v.activity_id,
+                "predecessorId": v.predecessor_id,
+                "predecessorStatus": v.predecessor_status,
+                "message": v.message,
+                "predecessorChain": v.predecessor_chain or [],
+            }
+            store.create_report(
+                report_id,
+                project_id,
+                text,
+                status="SCHEDULE_VIOLATION",
+                matched_activity_id=activity_id,
+                violation=violation,
+                decision_reasons=decision_reasons,
+            )
+            return {
+                "status": "SCHEDULE_VIOLATION",
+                "reportId": report_id,
+                "activity": _get_activity_view(activity_id),
+                "violation": violation,
+                "decisionReasons": decision_reasons,
+            }
+
         prev_state = update.previous_execution_state if update else None
         new_state = update.new_execution_state if update else None
         prev_status = _STATUS_MAP.get(prev_state.actual_status.value, "NOT_STARTED") if prev_state else "NOT_STARTED"
@@ -304,24 +368,66 @@ def _process_single_report(project_id: str, text: str, source_type: str = "front
         new_progress = new_state.actual_progress if new_state else 0
 
         message = _build_update_message(prev_status, new_status, prev_progress, new_progress)
+        activity_row = _get_activity_row(activity_id) if activity_id else None
+        discipline = activity_row.get("discipline") if activity_row is not None else None
         update_record = store.add_update(
-            activity_id, report_id, prev_status, new_status, prev_progress, new_progress, message
+            activity_id,
+            report_id,
+            prev_status,
+            new_status,
+            prev_progress,
+            new_progress,
+            message,
+            source=source_type,
+            discipline=discipline,
+            decision_reasons=decision_reasons,
         )
-        store.create_report(report_id, project_id, text, status="SUCCESS", matched_activity_id=activity_id)
+        store.create_report(
+            report_id,
+            project_id,
+            text,
+            status="SUCCESS",
+            matched_activity_id=activity_id,
+            decision_reasons=decision_reasons,
+        )
+        if new_status == "COMPLETED":
+            store.auto_resolve_stale_attention(activity_id, resolved_by_report_id=report_id)
         return {
             "status": "SUCCESS",
             "reportId": report_id,
             "activity": _get_activity_view(activity_id),
             "update": update_record,
+            "decisionReasons": decision_reasons,
         }
 
     if decision.decision == DecisionType.HUMAN_REVIEW:
+        decision_reasons = decision.decision_reasons or []
         candidates = [
-            {"activityId": c.activity_id, "activityName": c.activity_name}
-            for c in (result.ranking.ranked_candidates[:3] if result.ranking else [])
-        ]
-        store.create_report(report_id, project_id, text, status="NEEDS_REVIEW", candidate_activities=candidates)
-        return {"status": "NEEDS_REVIEW", "reportId": report_id, "candidates": candidates}
+    {
+        "activityId": c.activity_id,
+        "activityName": c.activity_name,
+        "activityArea": (
+            _get_activity_row(c.activity_id)["location"]
+            if _get_activity_row(c.activity_id) is not None
+            else None
+        ),
+    }
+    for c in (result.ranking.ranked_candidates[:3] if result.ranking else [])
+]
+        store.create_report(
+            report_id,
+            project_id,
+            text,
+            status="NEEDS_REVIEW",
+            candidate_activities=candidates,
+            decision_reasons=decision_reasons,
+        )
+        return {
+            "status": "NEEDS_REVIEW",
+            "reportId": report_id,
+            "candidates": candidates,
+            "decisionReasons": decision_reasons,
+        }
 
     store.create_report(report_id, project_id, text, status="UNMATCHED")
     return {"status": "UNMATCHED", "reportId": report_id}
@@ -337,6 +443,147 @@ def submit_report(project_id: str, body: SubmitReportBody):
     return envelope(result)
 
 
+def _require_violation_report(report_id: str) -> dict:
+    report = store.get_report(report_id)
+    if report is None or report.get("status") != "SCHEDULE_VIOLATION":
+        fail(404, f"Schedule violation report {report_id} not found")
+    return report
+
+
+def _validate_predecessor_ids(predecessor_ids: List[str]) -> None:
+    valid_ids = set(_schedule_df()["activity_id"])
+    invalid = sorted(set(predecessor_ids) - valid_ids)
+    if invalid:
+        fail(400, f"Unknown predecessor activity IDs: {', '.join(invalid)}")
+
+
+def _write_resolution_state(activity_id: str, report_id: str, message: str, source: str,
+                            state: Optional[ExecutionState] = None) -> dict:
+    repo = _exec_repo()
+    previous = repo.get(activity_id)
+    previous_status = _STATUS_MAP.get(previous.actual_status.value, "NOT_STARTED") if previous else "NOT_STARTED"
+    previous_progress = previous.actual_progress if previous else 0
+    state = state or ExecutionState(
+        activity_id=activity_id,
+        actual_status=ExecutionStatus.COMPLETED,
+        actual_progress=100.0,
+        last_report_id=report_id,
+        last_update_timestamp=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
+    repo.save(state)
+    if state.actual_status == ExecutionStatus.COMPLETED:
+        store.auto_resolve_stale_attention(activity_id, resolved_by_report_id=report_id)
+    return store.add_update(
+        activity_id, report_id, previous_status, "COMPLETED", previous_progress, 100.0,
+        message, source=source,
+    )
+
+
+def _retry_violation_report(report_id: str, report: dict) -> dict:
+    raw_report = RawReportInput(
+        report_id=report_id,
+        report_date=report.get("submittedAt", "")[:10] or None,
+        source_type="violation-retry",
+        raw_text=report["text"],
+    )
+    result = _pipeline().process_report(raw_report)
+    update = result.update
+    activity_id = report.get("matchedActivityId")
+    remaining = []
+    if update and update.violation:
+        remaining = [
+            item for item in (update.violation.predecessor_chain or [])
+            if item["status"] != ExecutionStatus.COMPLETED.value
+        ]
+        store.update_report(report_id, violation={
+            "rule": update.violation.rule,
+            "activityId": update.violation.activity_id,
+            "predecessorId": update.violation.predecessor_id,
+            "predecessorStatus": update.violation.predecessor_status,
+            "message": update.violation.message,
+            "predecessorChain": update.violation.predecessor_chain or [],
+        })
+        return {"status": "SCHEDULE_VIOLATION", "reportId": report_id,
+                "activity": _get_activity_view(activity_id), "remaining": remaining}
+
+    if update and update.new_execution_state:
+        previous = update.previous_execution_state
+        store.add_update(
+            activity_id, report_id,
+            _STATUS_MAP.get(previous.actual_status.value, "NOT_STARTED") if previous else "NOT_STARTED",
+            _STATUS_MAP.get(update.new_execution_state.actual_status.value, "NOT_STARTED"),
+            previous.actual_progress if previous else 0,
+            update.new_execution_state.actual_progress or 0,
+            update.update_reason,
+        )
+    store.update_report(report_id, status="SUCCESS")
+    return {"status": "SUCCESS", "reportId": report_id,
+            "activity": _get_activity_view(activity_id), "remaining": []}
+
+
+@app.post("/api/reports/{report_id}/resolve-violation")
+def resolve_violation(report_id: str, body: ResolveViolationBody):
+    report = _require_violation_report(report_id)
+    if any(item.action not in ("log_report", "mark_resolved") for item in body.items):
+        fail(400, "action must be log_report or mark_resolved")
+    predecessor_ids = [item.predecessorId for item in body.items]
+    _validate_predecessor_ids(predecessor_ids)
+
+    updates = []
+    for item in body.items:
+        if item.action == "log_report":
+            synthetic = RawReportInput(
+                report_id=f"{report_id}-resolution-{item.predecessorId}",
+                report_date=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                source_type="violation-resolution",
+                raw_text=f"Activity {item.predecessorId} completed. {item.note or ''}".strip(),
+            )
+            extracted = extract_information(normalize_report(synthetic))
+            previous = _exec_repo().get(item.predecessorId)
+            mapping = StatusMapper().map_from_extracted_report(
+                extracted,
+                current_state=previous.actual_status if previous else None,
+                current_progress=previous.actual_progress if previous else 0,
+            )
+            state = ExecutionState(
+                activity_id=item.predecessorId,
+                actual_status=mapping.actual_status,
+                actual_progress=mapping.actual_progress,
+                last_report_id=synthetic.report_id,
+                last_update_timestamp=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            )
+            updates.append(_write_resolution_state(
+                item.predecessorId, report_id,
+                item.note or f"Resolved predecessor via violation-resolution for {report_id}",
+                "violation-resolution",
+                state=state,
+            ))
+        else:
+            updates.append(_write_resolution_state(
+                item.predecessorId, report_id,
+                item.note or f"Marked resolved from violated report {report_id}",
+                "violation-resolution",
+            ))
+    result = _retry_violation_report(report_id, report)
+    return envelope({**result, "updates": updates})
+
+
+@app.post("/api/reports/{report_id}/bulk-complete-chain")
+def bulk_complete_chain(report_id: str, body: BulkCompleteChainBody):
+    report = _require_violation_report(report_id)
+    _validate_predecessor_ids(body.predecessorIds)
+    updates = [
+        _write_resolution_state(
+            activity_id, report_id,
+            body.note or f"Bulk override for violated report {report_id}",
+            "bulk-override",
+        )
+        for activity_id in body.predecessorIds
+    ]
+    result = _retry_violation_report(report_id, report)
+    return envelope({**result, "updates": updates})
+
+
 @app.post("/api/projects/{project_id}/reports/batch")
 def submit_batch(project_id: str, body: SubmitBatchBody):
     if project_id != PROJECT_ID:
@@ -344,13 +591,25 @@ def submit_batch(project_id: str, body: SubmitBatchBody):
     if not body.items:
         fail(400, "No items provided")
 
+    raw_reports = [
+        RawReportInput(
+            report_id=store.new_report_id(),
+            report_date=item.reportDate or datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            source_type=item.sourceType or "batch",
+            raw_text=item.text,
+        )
+        for item in body.items
+    ]
+    pipeline_results = _pipeline().process_batch(raw_reports)
     results = []
-    for item in body.items:
+    for item, raw_report, pipeline_result in zip(body.items, raw_reports, pipeline_results):
         try:
             r = _process_single_report(
                 project_id, item.text,
                 source_type=item.sourceType or "batch",
                 report_date=item.reportDate,
+                report_id=raw_report.report_id,
+                pipeline_result=pipeline_result,
             )
         except Exception as e:
             logger.exception("Batch item failed")
@@ -361,10 +620,17 @@ def submit_batch(project_id: str, body: SubmitBatchBody):
         "total": len(results),
         "success": sum(1 for r in results if r.get("status") == "SUCCESS"),
         "needsReview": sum(1 for r in results if r.get("status") == "NEEDS_REVIEW"),
+        "scheduleViolation": sum(1 for r in results if r.get("status") == "SCHEDULE_VIOLATION"),
         "unmatched": sum(1 for r in results if r.get("status") == "UNMATCHED"),
         "errors": sum(1 for r in results if r.get("status") == "ERROR"),
     }
-    return envelope({"results": results, "summary": summary})
+    pairs = [
+        (raw_report.report_id, pipeline_result.decision.selected_activity_id)
+        for raw_report, pipeline_result in zip(raw_reports, pipeline_results)
+        if pipeline_result.decision and pipeline_result.decision.selected_activity_id
+    ]
+    ordering = topological_sort(build_dependency_graph(pairs, _schedule_df()))
+    return envelope({"results": results, "summary": summary, "batchOrdering": ordering})
 
 
 @app.post("/api/projects/{project_id}/reports/parse")
@@ -405,22 +671,49 @@ def confirm_activity(report_id: str, body: ConfirmBody):
     prev_status = _STATUS_MAP.get(prev_state.actual_status.value, "NOT_STARTED") if prev_state else "NOT_STARTED"
     prev_progress = prev_state.actual_progress if prev_state else 0
 
-    new_progress = max(prev_progress or 0, 50)
+    raw_report = RawReportInput(
+        report_id=report_id,
+        report_date=report.get("submittedAt", "")[:10] or None,
+        source_type="confirmation",
+        raw_text=report["text"],
+    )
+    extracted_report = extract_information(normalize_report(raw_report))
+    mapping = StatusMapper().map_from_extracted_report(
+        extracted_report,
+        current_state=prev_state.actual_status if prev_state else None,
+        current_progress=prev_progress,
+    )
+
     new_state = ExecutionState(
         activity_id=body.activityId,
-        actual_status=ExecutionStatus.IN_PROGRESS,
-        actual_progress=new_progress,
+        actual_status=mapping.actual_status,
+        actual_progress=mapping.actual_progress,
         last_report_id=report_id,
         last_update_timestamp=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
+    logger.info(
+        "TRACE report_id=%s event_type=%s extracted_progress=%s mapped_status=%s mapped_progress=%s",
+        report_id,
+        extracted_report.event_type.value.value,
+        extracted_report.progress.value,
+        mapping.actual_status.value,
+        mapping.actual_progress,
     )
     exec_repo.save(new_state)
 
     update_record = store.add_update(
-        body.activityId, report_id, prev_status, "IN_PROGRESS", prev_progress, new_progress,
-        f"Activity confirmed via Field Report {report_id}",
+        body.activityId,
+        report_id,
+        prev_status,
+        mapping.actual_status.value,
+        prev_progress,
+        mapping.actual_progress,
+        f"Activity confirmed via Field Report {report_id}: {mapping.reason}",
     )
 
     store.update_report(report_id, status="SUCCESS", matchedActivityId=body.activityId, userDecision="CONFIRMED")
+    if mapping.actual_status == ExecutionStatus.COMPLETED:
+        store.auto_resolve_stale_attention(body.activityId, resolved_by_report_id=report_id)
 
     return envelope({
         "status": "SUCCESS",
@@ -441,6 +734,34 @@ def reject_report(report_id: str, body: RejectBody):
 # ---------------------------------------------------------------------------
 # Dashboard
 # ---------------------------------------------------------------------------
+
+
+@app.get("/api/projects/{project_id}/analytics/activity-trace/{activity_id}")
+def activity_trace(project_id: str, activity_id: str):
+    if project_id != PROJECT_ID:
+        fail(404, f"Project {project_id} not found")
+    return envelope(query_activity_trace(activity_id))
+
+
+@app.get("/api/projects/{project_id}/analytics/by-discipline-status")
+def by_discipline_status(project_id: str, discipline: str, status: str):
+    if project_id != PROJECT_ID:
+        fail(404, f"Project {project_id} not found")
+    return envelope(query_by_discipline_status(discipline, status))
+
+
+@app.get("/api/projects/{project_id}/analytics/progress-by-discipline")
+def progress_by_discipline(project_id: str):
+    if project_id != PROJECT_ID:
+        fail(404, f"Project {project_id} not found")
+    return envelope(query_avg_progress_by_discipline())
+
+
+@app.get("/api/projects/{project_id}/analytics/recent-updates")
+def recent_updates(project_id: str, limit: int = 20):
+    if project_id != PROJECT_ID:
+        fail(404, f"Project {project_id} not found")
+    return envelope(query_recent_updates(limit))
 
 
 @app.get("/api/projects/{project_id}/dashboard")

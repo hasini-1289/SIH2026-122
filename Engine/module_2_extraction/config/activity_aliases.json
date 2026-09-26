@@ -3,11 +3,17 @@
     "install",
     "installation",
     "installed",
+    "installing",
+    "install cable tray",
+    "cable tray installation",
+    "tray installation",
     "erect",
     "erection",
     "erected",
     "mount",
-    "mounted"
+    "mounted",
+    "mounting",
+    "placed"
   ],
   "WELD": [
     "weld",
@@ -17,33 +23,42 @@
   "FIT_UP": [
     "fit up",
     "fit-up",
-    "fitup"
+    "fitup",
+    "joint preparation",
+    "joint prep"
   ],
   "INSPECT": [
     "inspect",
     "inspection",
     "inspected",
     "checking",
-    "checked"
+    "checked",
+    "quality check"
   ],
   "HYDROTEST": [
     "hydrotest",
     "hydro test",
     "hydro-test",
     "hydrotesting",
-    "hydro testing"
+    "hydro testing",
+    "pressure test"
   ],
   "EXCAVATE": [
     "excavate",
     "excavation",
     "excavating",
-    "excavated"
+    "excavated",
+    "foundation digging",
+    "digging"
   ],
   "CAST": [
     "cast",
     "casting",
     "concrete casting",
-    "concreting"
+    "concreting",
+    "pour concrete",
+    "concrete pour",
+    "pour"
   ],
   "CURE": [
     "cure",
@@ -71,18 +86,30 @@
     "cable pulling",
     "cable pull",
     "pull cable",
-    "pulling cable"
+    "pulling cable",
+    "pull cables",
+    "cables routed",
+    "cable routing",
+    "cables routing",
+    "routed cables",
+    "routing cables"
   ],
   "TERMINATE_CABLE": [
     "cable termination",
     "cable terminating",
     "terminate cable",
-    "cable terminated"
+    "cable terminated",
+    "cables terminated",
+    "cables terminating",
+    "terminating cables"
   ],
   "CONNECT_MOTOR": [
     "motor connection",
     "connect motor",
     "motor connecting",
-    "motor connected"
+    "motor connected",
+    "motor power hookup",
+    "power hookup",
+    "power connected"
   ]
 }

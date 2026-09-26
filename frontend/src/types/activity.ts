@@ -1,4 +1,4 @@
-export type ActivityStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED' | 'NEEDS_REVIEW';
+export type ActivityStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED';
 export type Priority = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
 export interface Activity {
@@ -7,6 +7,7 @@ export interface Activity {
   name: string;
   description: string;
   status: ActivityStatus;
+  hasPendingReview: boolean;
   progress: number;
   plannedStart: string;
   plannedFinish: string;
@@ -29,5 +30,6 @@ export interface ActivityUpdate {
   previousProgress?: number;
   newProgress?: number;
   message: string;
+  source?: 'bulk-override' | 'violation-resolution' | string;
   createdAt: string;
 }

@@ -26,6 +26,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from .db import log_update
+
 STORE_PATH = Path("Data/api_state.json")
 
 _lock = threading.Lock()
@@ -85,6 +87,8 @@ class ApiStateStore:
         status: str,
         matched_activity_id: Optional[str] = None,
         candidate_activities: Optional[List[dict]] = None,
+        violation: Optional[dict] = None,
+        decision_reasons: Optional[List[str]] = None,
     ) -> dict:
         now = _now_iso()
         record = {
@@ -96,6 +100,8 @@ class ApiStateStore:
             "status": status,
             "matchedActivityId": matched_activity_id,
             "candidateActivities": candidate_activities or [],
+            "violation": violation,
+            "decisionReasons": decision_reasons or [],
             "userDecision": None,
             "reviewNote": None,
             "createdAt": now,
@@ -130,8 +136,30 @@ class ApiStateStore:
         return [
             r
             for r in self.list_reports(project_id)
-            if r["status"] in ("NEEDS_REVIEW", "UNMATCHED") and r.get("userDecision") is None
+            if r["status"] in ("NEEDS_REVIEW", "UNMATCHED", "SCHEDULE_VIOLATION")
+            and r.get("userDecision") is None
         ]
+
+    def auto_resolve_stale_attention(self, activity_id: str, resolved_by_report_id: Optional[str] = None) -> None:
+        with _lock:
+            changed = False
+            for report in self.reports.values():
+                if report.get("userDecision") is not None:
+                    continue
+                is_target = (
+                    report.get("matchedActivityId") == activity_id
+                    or (report.get("violation") or {}).get("activityId") == activity_id
+                )
+                if is_target and report.get("status") in ("NEEDS_REVIEW", "SCHEDULE_VIOLATION"):
+                    report["userDecision"] = "RESOLVED"
+                    report["reviewNote"] = (
+                        f"Auto-resolved: activity {activity_id} completed"
+                        + (f" by report {resolved_by_report_id}" if resolved_by_report_id else "")
+                    )
+                    report["updatedAt"] = _now_iso()
+                    changed = True
+            if changed:
+                self._save()
 
     # -- activity update history -------------------------------------------------------
 
@@ -144,6 +172,9 @@ class ApiStateStore:
         previous_progress: Optional[float],
         new_progress: Optional[float],
         message: str,
+        source: Optional[str] = None,
+        discipline: Optional[str] = None,
+        decision_reasons: Optional[List[str]] = None,
     ) -> dict:
         with _lock:
             self._update_counter += 1
@@ -156,10 +187,26 @@ class ApiStateStore:
                 "previousProgress": previous_progress,
                 "newProgress": new_progress,
                 "message": message,
+                "source": source,
+                "discipline": discipline,
+                "decisionReasons": decision_reasons or [],
                 "createdAt": _now_iso(),
             }
             self.updates.append(record)
             self._save()
+            log_update(
+                record["_id"],
+                report_id,
+                activity_id,
+                discipline,
+                previous_status,
+                new_status,
+                previous_progress,
+                new_progress,
+                decision_reasons,
+                message,
+                record["createdAt"],
+            )
             return record
 
     def list_updates_for_activity(self, activity_id: str) -> List[dict]:

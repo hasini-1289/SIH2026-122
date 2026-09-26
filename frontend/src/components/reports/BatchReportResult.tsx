@@ -1,6 +1,6 @@
 import React from 'react';
 import { BatchSubmitResponse } from '../../types/report';
-import { CheckCircle2, AlertTriangle, HelpCircle, XCircle, RotateCcw } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, HelpCircle, ShieldAlert, XCircle, RotateCcw } from 'lucide-react';
 import { truncate } from '../../utils/formatters';
 
 interface BatchReportResultProps {
@@ -11,20 +11,22 @@ interface BatchReportResultProps {
 const STATUS_META: Record<string, { icon: React.ReactNode; color: string; label: string }> = {
   SUCCESS: { icon: <CheckCircle2 size={15} />, color: '#266240', label: 'Matched' },
   NEEDS_REVIEW: { icon: <AlertTriangle size={15} />, color: '#B87A20', label: 'Needs Review' },
+  SCHEDULE_VIOLATION: { icon: <ShieldAlert size={15} />, color: '#A03828', label: 'Schedule Violation' },
   UNMATCHED: { icon: <HelpCircle size={15} />, color: '#5C5750', label: 'Unmatched' },
   ERROR: { icon: <XCircle size={15} />, color: '#A03828', label: 'Error' },
 };
 
 export function BatchReportResult({ result, onReset }: BatchReportResultProps) {
-  const { summary, results } = result;
+  const { summary, results, batchOrdering } = result;
 
   return (
     <div className="glass-panel p-6 flex flex-col animate-fade-in h-full">
       <span className="section-label">BATCH RESULTS</span>
 
-      <div className="grid grid-cols-4 gap-2 my-4">
+      <div className="grid grid-cols-5 gap-2 my-4">
         <SummaryStat label="Matched" value={summary.success} color="#266240" />
         <SummaryStat label="Review" value={summary.needsReview} color="#B87A20" />
+        <SummaryStat label="Violations" value={summary.scheduleViolation} color="#A03828" />
         <SummaryStat label="Unmatched" value={summary.unmatched} color="#5C5750" />
         <SummaryStat label="Errors" value={summary.errors} color="#A03828" />
       </div>
@@ -52,6 +54,11 @@ export function BatchReportResult({ result, onReset }: BatchReportResultProps) {
                     {r.candidates.length} candidate{r.candidates.length !== 1 ? 's' : ''} found
                   </div>
                 )}
+                {r.status === 'SCHEDULE_VIOLATION' && r.violation && (
+                  <div className="text-xs text-secondary mt-0.5">
+                    Blocked by predecessor {r.violation.predecessorId}
+                  </div>
+                )}
                 {r.status === 'ERROR' && r.error && (
                   <div className="text-xs text-secondary mt-0.5">{truncate(r.error, 100)}</div>
                 )}
@@ -60,6 +67,17 @@ export function BatchReportResult({ result, onReset }: BatchReportResultProps) {
           );
         })}
       </div>
+
+      {batchOrdering.length > 0 && (
+        <div className="mt-4 text-xs text-secondary">
+          <div className="section-label mb-2">DEPENDENCY ORDER</div>
+          {batchOrdering.map((group, index) => (
+            <div key={index} className="glass-card px-3 py-2 mb-1">
+              {group.join(' -> ')}
+            </div>
+          ))}
+        </div>
+      )}
 
       <button onClick={onReset} className="glass-button-ghost text-xs flex items-center gap-1.5 mt-4">
         <RotateCcw size={11} /> Submit another batch
