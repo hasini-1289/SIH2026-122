@@ -55,7 +55,7 @@ export default function Dashboard() {
         </div>
         <button
           onClick={() => navigate('/analytics')}
-          className="glass-button-teal px-4 py-2.5 text-sm flex items-center justify-center gap-2 self-start md:self-auto"
+          className="glass-button-analytics px-4 py-2.5 text-sm flex items-center justify-center gap-2 self-start md:self-auto"
         >
           <BarChart3 size={15} />
           QUERY ANALYTICS
