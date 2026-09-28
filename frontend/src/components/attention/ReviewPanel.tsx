@@ -21,6 +21,7 @@ export function ReviewPanel({ report, onClose, onResolved }: ReviewPanelProps) {
   // Bulk override (Option 2)
   const [bulkMode, setBulkMode] = useState(false);
   const [bulkNote, setBulkNote] = useState('');
+  const [submitError, setSubmitError] = useState('');
 
   const isUnmatched = report.status === 'UNMATCHED';
   const isViolation = report.status === 'SCHEDULE_VIOLATION';
@@ -29,7 +30,17 @@ export function ReviewPanel({ report, onClose, onResolved }: ReviewPanelProps) {
   // be returned yet), otherwise fall back to the single predecessor fields.
   const predecessorRows: PredecessorStatusItem[] = (() => {
     if (report.violation?.predecessorChain && report.violation.predecessorChain.length > 0) {
-      return report.violation.predecessorChain;
+      return report.violation.predecessorChain.map((row) => {
+        const legacyRow = row as PredecessorStatusItem & {
+          activity_id?: string;
+          activity_name?: string;
+        };
+        return {
+          activityId: row.activityId ?? legacyRow.activity_id ?? '',
+          activityName: row.activityName ?? legacyRow.activity_name,
+          status: row.status,
+        };
+      });
     }
     if (report.violation?.predecessorId) {
       return [
@@ -53,11 +64,13 @@ export function ReviewPanel({ report, onClose, onResolved }: ReviewPanelProps) {
     activityId: string,
     action: 'log_report' | 'mark_resolved'
   ) => {
+    setSubmitError('');
     setRowActions((prev) => ({ ...prev, [activityId]: action }));
   };
 
   const handleViolationSubmit = async () => {
     if (!canSubmitViolation) return;
+    setSubmitError('');
     setIsSubmitting(true);
     try {
       if (bulkMode) {
@@ -73,6 +86,7 @@ export function ReviewPanel({ report, onClose, onResolved }: ReviewPanelProps) {
       onResolved();
     } catch (err) {
       console.error(err);
+      setSubmitError(err instanceof Error ? err.message : 'Could not submit the resolution.');
       setIsSubmitting(false);
     }
   };
@@ -351,6 +365,11 @@ export function ReviewPanel({ report, onClose, onResolved }: ReviewPanelProps) {
                   >
                     REPORT IS WRONG — MARK AS UNRESOLVED
                   </button>
+                  {submitError && (
+                    <p className="mt-3 text-sm" style={{ color: '#A03828' }} role="alert">
+                      {submitError}
+                    </p>
+                  )}
                 </>
               )}
 
